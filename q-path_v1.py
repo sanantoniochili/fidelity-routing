@@ -130,11 +130,11 @@ if __name__=="__main__":
     G.fidelities = dict(zip( E, np.random.uniform(low=0.5, high=1, size=len(E)) ))
     print(f'Fidelities: {G.fidelities}')
 
-    # # remove illegible edges
-    # text = f' Graph before edge removal: {V}'
-    # print(text+'-'*(Tlen-len(text)))
-    # delete_edges(G, min_fidelity)
-    # text = f' Graph after edge removal: {V}'
+    # remove illegible edges
+    text = f' Graph before edge removal: {V}'
+    print(text+'-'*(Tlen-len(text)))
+    delete_edges(G, min_fidelity)
+    text = f' Graph after edge removal: {V}'
 
     # perform BFS to find min_cost
-    G.BFS()
+    min_cost = G.BFS()
