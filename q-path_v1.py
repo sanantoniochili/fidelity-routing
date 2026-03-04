@@ -130,7 +130,7 @@ if __name__=="__main__":
     G.fidelities = dict(zip( E, np.random.uniform(low=0.5, high=1, size=len(E)) ))
     print(f'Fidelities: {G.fidelities}')
 
-    # remove illegible edges
+    # remove illegitimate edges
     text = f' Graph before edge removal: {V}'
     print(text+'-'*(Tlen-len(text)))
     delete_edges(G, min_fidelity)
