@@ -31,7 +31,7 @@ neighbours = [
 # cutoff fidelity 
 min_fidelity    = 0.8
 # randomly initialize the RNG from some platform-dependent source of entropy
-np.random.seed(0)
+np.random.seed(2)
 
 
 
