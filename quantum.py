@@ -1,7 +1,10 @@
 # Print the size of terminal
 import os, math
 import networkx as nx
-Tlen = os.get_terminal_size().columns
+try:
+    Tlen = os.get_terminal_size().columns
+except OSError:
+    Tlen = 80
 
 def get_purification_fidelity(x1, x2):
     """Return the fidelity of the final pair
@@ -73,3 +76,38 @@ def delete_edges(G:nx.Graph, F_min, debug=False):
             edges_to_remove.append(edge)
 
     G.remove_edges_from(edges_to_remove)
+
+def get_required_purification(f_initial, f_target):
+    if f_initial >= f_target:
+        return 1
+    c = 1
+    f_current = f_initial
+    while f_current < f_target:
+        f_next = get_purification_fidelity(f_current, f_initial)
+        if f_next <= f_current + 1e-9:
+            return float('inf')
+        f_current = f_next
+        c += 1
+    return c
+
+def get_end_to_end_fidelity(path_fidelities):
+    if not path_fidelities:
+        return 0.0
+    n = len(path_fidelities)
+    if n == 1:
+        return path_fidelities[0]
+    prod = 1.0
+    for F_i in path_fidelities:
+        prod *= (4.0 * F_i - 1.0) / 3.0
+    return 0.25 + 0.75 * prod
+
+
+
+def get_purified_fidelity_for_budget(f_initial, pairs_consumed):
+    if pairs_consumed <= 1:
+        return f_initial
+    f_current = f_initial
+    for _ in range(pairs_consumed - 1):
+        f_current = get_purification_fidelity(f_current, f_initial)
+    return f_current
+
