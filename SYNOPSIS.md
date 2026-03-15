@@ -6,8 +6,9 @@ This project implements quantum internet routing algorithms that optimize path s
 ## Project Goals
 - Develop quantum routing protocols that account for entanglement fidelity degradation
 - Implement entanglement purification strategies to improve fidelity on network edges
-- Find optimal paths through quantum networks considering both fidelity and capacity
-- Filter out edges that cannot meet minimum fidelity requirements after purification
+- Find optimal paths through quantum networks considering fidelity, capacity, and success probability
+- Support both theoretical (Paper) and implemented (GitHub) models
+- Verify results against US Backbone topology (39 nodes, 121 edges)
 
 ## Key Concepts
 
@@ -73,6 +74,9 @@ This project implements quantum internet routing algorithms that optimize path s
 Source ←→ Repeater1 ←→ Destination
   ↓    ↘    ↓    ↙    ↓
      Repeater2
+
+### US Backbone Network (Ref [39])
+A 39-node network with 121 directed edges representing the core US fiber backbone. Used for large-scale verification in `verify_fig6.py`.
 ```
 
 ### Complex Topology (S-D with 3 Repeaters)
@@ -111,8 +115,9 @@ The scripts print:
 ## Use Cases
 - Quantum key distribution (QKD) network routing
 - Quantum internet alliance (QIA) network optimization
-- Investigation of trade-offs between path length and fidelity constraints
-- Simulation of entanglement purification strategies in large networks
+- Investigation of trade-offs between path length, fidelity, and success probability
+- Simulation of entanglement purification strategies in large networks (US Backbone)
+- Comparison against official paper implementations (DEJMPS vs BBPSSW)
 
 ## Dependencies
 - `numpy`: Numerical computations and random number generation

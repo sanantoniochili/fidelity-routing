@@ -19,6 +19,13 @@ G = nx.Graph()
 # flag for debugging
 debug = True
 
+# MODEL TOGGLES
+CONFIG = {
+    'purification': 'bbpssw',   # 'bbpssw' (Paper), 'isotropic' (Repo)
+    'fidelity_e2e': 'swapping', # 'swapping' (Paper), 'product' (Repo)
+    'use_probs': True            # Note: Q-LEAP cost is fixed, but tput can scale
+}
+
 SDpairs = {
     ### simple example with S-D and two repeaters ###
     'simple': [
@@ -50,11 +57,16 @@ def q_leap_metrics(G, source, target, F_th):
     
     def fidelity_weight(u, v, d):
         f = d.get('fidelity', 1.0)
-        # Ensure domain is valid. If F <= 0.25, the channel is completely mixed and useless
-        val = (4.0 * f - 1.0) / 3.0
-        if val <= 0:
-            return float('inf') # Infinite weight, essentially dead edge
-        return -math.log10(val)
+        # Switch weight based on e2e model
+        if CONFIG['fidelity_e2e'] == 'product':
+            # Maximize product(F) -> Minimize sum(-log(F))
+            if f <= 0: return float('inf')
+            return -math.log10(f)
+        else:
+            # Maximize swapping formula -> Minimize sum(-log((4F-1)/3))
+            val = (4.0 * f - 1.0) / 3.0
+            if val <= 0: return float('inf')
+            return -math.log10(val)
         
     try:
         # Use networkx dijkstra with our custom weight function
@@ -81,19 +93,14 @@ def q_leap_metrics(G, source, target, F_th):
         initial_f = edge_data['fidelity']
         capacity = edge_data['weight']
         
-        # Calculate how many pairs we actually need to reach F_avg
-        required_pairs = quantum.get_required_purification(initial_f, F_avg)
+    # Calculate final success probability
+    p_succ = 1.0
+    for i in range(l):
+        f_init = G[path[i]][path[i+1]]['fidelity']
+        f_pure = quantum.get_purified_fidelity_for_budget(f_init, quantum.get_required_purification(f_init, F_avg, model=CONFIG['purification']), model=CONFIG['purification'])
+        p_succ *= quantum.get_purification_success_prob(f_pure, model=CONFIG['purification'])
         
-        if required_pairs > capacity:
-            # This path is invalid because capacity constraints prevent reaching F_avg
-            bottleneck_edges.append((u, v, required_pairs, capacity))
-            
-        total_cost += required_pairs
-        
-    if bottleneck_edges:
-        return path, False, bottleneck_edges
-        
-    return path, True, total_cost
+    return path, True, (total_cost, p_succ)
 
 
 if __name__=="__main__":
@@ -151,8 +158,10 @@ if __name__=="__main__":
         print(f" [Q-LEAP] Intrinsic end-to-end fidelity (no purification): {F_intrinsic:.4f}")
         
         if success:
+            cost, p_succ = info
             print(f" [Q-LEAP] SUCCESS! Path satisfies constraints.")
-            print(f" [Q-LEAP] Total Entangled Pair Cost (minimum): {info}")
+            print(f" [Q-LEAP] Total Entangled Pair Cost (minimum): {cost}")
+            print(f" [Q-LEAP] Success Probability (End-to-End): {p_succ:.4f}")
         else:
             print(f" [Q-LEAP] FAILURE! Path bottlenecked by capacity limitations.")
             for u, v, req, cap in info:
