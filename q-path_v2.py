@@ -13,6 +13,13 @@ G = nx.Graph()
 # flag for debugging
 debug = True
 
+# MODEL TOGGLES (User can switch between Paper and Repo logic)
+CONFIG = {
+    'purification': 'bbpssw',   # 'bbpssw' (Paper default), 'isotropic' (Repo)
+    'fidelity_e2e': 'swapping', # 'swapping' (Paper default), 'product' (Repo)
+    'use_probs': True            # Scale throughput by success probability
+}
+
 SDpairs = {
     ### simple example with S-D and two repeaters ###
     'simple': [
@@ -63,19 +70,94 @@ if __name__=="__main__":
 
     ''' MIN COST & K SHORTEST PATHS'''
 
-    # bfs for calculating lower bound cost
-    shortest_path = nx.shortest_path(G, source="source", target="destination")
-    H_cost = len(shortest_path)-1
+    # Configuration for search
+    source, destination = "source", "destination"
+    f_threshold = 0.85
+    search_type = 'optimal' # 'optimal' (DP) or 'greedy' (Repo-style)
+
+    # 1. BFS for lower bound hop count
+    try:
+        shortest_path = nx.shortest_path(G, source=source, target=destination)
+        H_cost = len(shortest_path) - 1
+    except nx.NetworkXNoPath:
+        print("No path found!")
+        exit()
+
     print('-'*(Tlen))
-    print(f' Expected cost: {H_cost}')
+    print(f' Target Fidelity: {f_threshold} | Mode: {CONFIG["purification"]}/{CONFIG["fidelity_e2e"]}')
+    print(f' Initial H_min: {H_cost}')
 
-    # get upper bound cost
-    C_max = max([edge[2]['weight'] for edge in G.edges(data=True)])
-    for min_cost in range(H_cost, len(G.edges())*C_max):
+    def get_greedy_boost_cost(path, f_th, config):
+        """Official Repo's greedy purification algorithm."""
+        l = len(path) - 1
+        # Current purification levels (total pairs used per link)
+        # Start with 1 pair per link
+        alloc = [1] * l
+        
+        while True:
+            # Calculate current path fidelity
+            fidelities = [quantum.get_purified_fidelity_for_budget(G[path[i]][path[i+1]]['fidelity'], alloc[i], model=config['purification']) for i in range(l)]
+            f_e2e = quantum.get_end_to_end_fidelity(fidelities, model=config['fidelity_e2e'])
+            
+            if f_e2e >= f_th:
+                cost = sum(alloc)
+                # Throughput logic with P_succ
+                p_succ = 1.0
+                for f_p in fidelities:
+                    p_succ *= quantum.get_purification_success_prob(f_p, model=config['purification'])
+                return cost, f_e2e, p_succ
+            
+            # Boost the link with the LOWEST current fidelity
+            target_idx = np.argmin(fidelities)
+            # Check capacity
+            u, v = path[target_idx], path[target_idx+1]
+            if alloc[target_idx] >= G[u][v]['weight']:
+                # Cannot boost further on this bottleneck link
+                # Try boosting next lowest? (Official repo just fails or continues)
+                # For robustness, we'll try to find a link that DOES have capacity
+                sorted_indices = np.argsort(fidelities)
+                found = False
+                for idx in sorted_indices:
+                    if alloc[idx] < G[path[idx]][path[idx+1]]['weight']:
+                        alloc[idx] += 1
+                        found = True
+                        break
+                if not found: return float('inf'), 0, 0
+            else:
+                alloc[target_idx] += 1
 
-        # Get multiple shortest paths with same cost
-        path_set = paths.k_shortest_paths(G, 'source', 'destination', min_cost)
-        print(path_set)
+    # Search for min cost
+    best_cost = float('inf')
+    best_res = None
+
+    # Iterate through increasing cost budget C
+    C_max = sum(nx.get_edge_attributes(G, 'weight').values())
+    
+    found_solution = False
+    for cost_budget in range(H_cost, C_max + 1):
+        # In Q-PATH, we explore paths that have hop count L <= cost_budget
+        # For simplicity, we search all paths with cutoff up to budget
+        for path in nx.all_simple_paths(G, source, destination, cutoff=cost_budget):
+            if search_type == 'greedy':
+                cost, fid, prob = get_greedy_boost_cost(path, f_threshold, CONFIG)
+            else:
+                # Use our DP cost function from verify_fig6
+                from verify_fig6 import get_q_path_cost
+                cost, fid, prob = get_q_path_cost(G, path, f_threshold, 100, CONFIG)
+            
+            if cost <= cost_budget:
+                print(f"\n[SUCCESS] Found path: {path}")
+                print(f"Total Cost: {cost} pairs")
+                print(f"Final Fidelity: {fid:.4f}")
+                print(f"Success Probability: {prob:.4f}")
+                tput = (1.0 * prob) / cost if CONFIG['use_probs'] else (1.0 / cost)
+                print(f"Normalized Throughput: {tput:.5f}")
+                found_solution = True
+                break
+        if found_solution: break
+
+    if not found_solution:
+        print("\nNo valid purification allocation found for given threshold.")
 
 
 

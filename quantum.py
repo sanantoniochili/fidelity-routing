@@ -1,75 +1,133 @@
-# Print the size of terminal
 import os, math
 import networkx as nx
-Tlen = os.get_terminal_size().columns
 
-def get_purification_fidelity(x1, x2):
-    """Return the fidelity of the final pair
-    after the purification protocol consumes two 
-    entanglement pairs with initial fidelities x1, x2.
+# Initialise terminal size for printing
+try:
+    Tlen = os.get_terminal_size().columns
+except OSError:
+    Tlen = 80
 
-    Args:
-        x1 (_type_): Fidelity of pair 1.
-        x2 (_type_): Fidelity of pair 2.
-
-    Returns:
-        _type_: Fidelity of purified pair.
+def get_purification_fidelity(x1, x2, model='bbpssw'):
+    """Return the fidelity of the final pair.
+    
+    Models:
+    - 'bbpssw': Standard BBPSSW formula used in paper Eq. 1
+    - 'isotropic': DEJMPS / Isotropic state formula used in GitHub repo (throughput.py)
     """    
-    return x1*x2/(x1*x2 + (1-x1)*(1-x2))
+    if model == 'bbpssw':
+        return x1 * x2 / (x1 * x2 + (1 - x1) * (1 - x2))
+    elif model == 'isotropic':
+        # Formula from official code (isotropic state, DEJMPS protocol):
+        # F' = (F^2 + 1/9 * (1-F)^2) / (F^2 + 2/3 * F * (1-F) + 5/9 * (1-F)^2)
+        # Note: Official code implementation assuming x1 = x2 = F
+        f = x1
+        num = f**2 + (1.0 / 9.0) * (1 - f)**2
+        den = f**2 + (2.0 / 3.0) * f * (1 - f) + (5.0 / 9.0) * (1 - f)**2
+        return num / den
+    return x1 * x2 / (x1 * x2 + (1 - x1) * (1 - x2))
 
+def get_purification_success_prob(f, model='isotropic'):
+    """Returns the success probability of a single purification round."""
+    if model == 'isotropic':
+        # Formula from official code: F^2 + 2/3 * F * (1-F) + 5/9 * (1-F)^2
+        return f**2 + (2.0 / 3.0) * f * (1 - f) + (5.0 / 9.0) * (1 - f)**2
+    # Fallback/standard BBPSSW success prob for isotropic states
+    # P_succ = F^2 + 2*F*(1-F)/3 + 5*(1-F)^2/9
+    return f**2 + (2.0 / 3.0) * f * (1 - f) + (5.0 / 9.0) * (1 - f)**2
 
-
-def get_purification_cost(f1, f2, c, debug=False):
-    """Calculate the maximum fidelity of the
-    current edge after C-1 iterations of purification.
-
+def get_purification_cost(f1, f2, c, debug=False, model='bbpssw'):
+    """Calculate the maximum fidelity of the current edge after C-1 iterations.
+    
     Args:
-        f1 (_type_): Fidelity of pair 1.
-        f2 (_type_): Fidelity of pair 2.
-        C (_type_): Capacity of the current edge.
-
-    Returns:
-        F: Array of fidelities after each purification iteration.
-        F_improve: Array of fidelity improvement after each iteration.
+        f1: Initial fidelity.
+        f2: Auxiliary pair fidelity.
+        c: Edge capacity (total pairs available).
     """    
     F_total = []
     F_improve = []
     fnew = f1
 
-    while(c>1):
+    while c > 1:
         c -= 1
-        fnew = get_purification_fidelity(f1, f2)
+        fnew = get_purification_fidelity(f1, f2, model=model)
         F_total.append(fnew)
-        F_improve.append(fnew-f1)
+        F_improve.append(fnew - f1)
         f1 = fnew
 
         if debug:
-            print(f' New pure/tion fidelity: {f1}')
+            print(f' New purification fidelity: {f1}')
             print(f' Fidelity improvement: {F_improve[-1]}')
             print(f' Capacity after purification: {c}')
-            print("-"*Tlen)
+            print("-" * Tlen)
 
-    print(f' Fidelity max: {fnew}')
     return F_total, F_improve
 
-
-
-def delete_edges(G:nx.Graph, F_min, debug=False):
-
+def delete_edges(G: nx.Graph, F_min, debug=False, model='bbpssw'):
+    """Removes edges from G that cannot reach F_min even with full purification."""
     edges_to_remove = []
     for edge in G.edges(data=True):
-        pass
         c = edge[2]['weight']
-        f1, f2 = edge[2]['fidelity'], edge[2]['fidelity']
+        f1 = edge[2]['fidelity']
+        f2 = f1
 
-        text = f' Edge: {edge} Capacity: {c} Initial fidelities: {f1} '
-        decor = "="*(math.floor((Tlen-len(text))/2))
-        print(decor+text+decor)
-        F_total, F_improve = get_purification_cost(f1, f2, c, debug)
+        if debug:
+            text = f' Edge: {edge[:2]} Capacity: {c} Initial fidelity: {f1} '
+            decor = "=" * (math.floor((Tlen - len(text)) / 2))
+            print(decor + text + decor)
 
-        if F_total[-1] < F_min:
-            print(f' *** Removing edge {edge} with max fidelity: {F_total[-1]}')
-            # remove edge from graph
+        # Max possible purification for this edge
+        F_total, _ = get_purification_cost(f1, f2, c, debug=False, model=model)
+        
+        max_f = F_total[-1] if F_total else f1
+        if max_f < F_min:
+            if debug:
+                print(f' *** Removing edge {edge[:2]} with max fidelity: {max_f}')
             edges_to_remove.append(edge)
 
     G.remove_edges_from(edges_to_remove)
+
+def get_required_purification(f_initial, f_target, model='bbpssw'):
+    """Returns minimum pairs needed to reach f_target on a single link."""
+    if f_initial >= f_target:
+        return 1
+    c = 1
+    f_current = f_initial
+    while f_current < f_target:
+        f_next = get_purification_fidelity(f_current, f_initial, model=model)
+        # Check for plateau or diminishing returns
+        if f_next <= f_current + 1e-9:
+            return float('inf')
+        f_current = f_next
+        c += 1
+    return c
+
+def get_end_to_end_fidelity(path_fidelities, model='swapping'):
+    """Calculates end-to-end fidelity for a path.
+    
+    Models:
+    - 'swapping': Equation 3 from paper (0.25 + 0.75 * prod((4Fi-1)/3))
+    - 'product': Simple product model used in GitHub repo (prod(Fi))
+    """
+    if not path_fidelities:
+        return 0.0
+    n = len(path_fidelities)
+    if n == 1:
+        return path_fidelities[0]
+        
+    if model == 'product':
+        return math.prod(path_fidelities)
+        
+    # 'swapping' (Paper Equation 3)
+    prod = 1.0
+    for F_i in path_fidelities:
+        prod *= (4.0 * F_i - 1.0) / 3.0
+    return 0.25 + 0.75 * prod
+
+def get_purified_fidelity_for_budget(f_initial, pairs_consumed, model='bbpssw'):
+    """Computes final fidelity after consuming X pairs on a single edge."""
+    if pairs_consumed <= 1:
+        return f_initial
+    f_current = f_initial
+    for _ in range(pairs_consumed - 1):
+        f_current = get_purification_fidelity(f_current, f_initial, model=model)
+    return f_current
